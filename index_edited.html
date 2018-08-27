@@ -1,0 +1,592 @@
+<!doctype html>
+<html>
+<!-- Links for font style, D3 library, Jquery, and CSS -->
+<link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="https://d3js.org/topojson.v1.min.js"></script>
+<script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+<script src="https://d3js.org/queue.v1.min.js"></script>
+<link rel="stylesheet" type="text/css" href="style.css">
+
+<style>
+</style>
+
+<head>
+  <title>Multiple Views, by Alex Shoop</title>
+</head>
+
+<!-- DIV for charts-->
+<button id = 'button' onClick="window.location.reload()">Refresh</button>
+<div id = "parent">
+<div id = "mapChart"></div>
+<div id = "barChart"></div>
+<div id = "areaChart"></div>
+</div>
+
+
+<body>
+<script>
+  console.log(d3); // test if d3 is loaded
+  
+  // formatting function
+  var formatNumb = d3.format("0.2f")
+  var formatBillion = function(x) { return formatNumb(x / 1e9); };
+  var formatMillion = function(x) { return x / 1e6; };
+  // color function
+  var color = d3.scaleOrdinal()
+                .range(["#9775AB","#4B8FD3","#33C114","#FA6E35","#CC0033", "#66390F", "#FFCC99"]);
+  // dispatch functions 
+  var dispatch = d3.dispatch("bar", "area", "map");
+  dispatch.on("area", (key) => updateAreaChart2(key));
+  //dispatch.on("map", (selected) => initBarChart(selected));
+  dispatch.on("bar", (selected) => updateBar(selected));
+
+  /*
+  AREA CHART FUNCTION
+  */ 
+  function initAreaChart() {
+    // Create and build canvas
+    // try changing width and height numbers
+    var margin = {top: 50, right: 50, bottom: 20, left: 90},
+          width = 600 - margin.left - margin.right,
+          height = 400 - margin.top - margin.bottom;
+    
+    // v4
+    var parseDate = d3.timeParse("%Y");
+    
+    // v4
+    var x = d3.scaleTime()
+              .range([0, width]);
+    // v4
+    var y = d3.scaleLinear()
+              .range([height, 0]);
+    // v4
+    var xAxis = d3.axisBottom()
+                  .scale(x);
+    var yAxis = d3.axisLeft()
+                  .scale(y)
+                  .tickFormat(formatBillion);
+
+    var stack = d3.stack();
+    var area = d3.area()
+                  .x(function(d) { return x(d.data.Year); })
+                  .y0(function(d) { return y(d[0]); })
+                  .y1(function(d) { return y(d[1]); });
+                    
+    var svg = d3.select("#areaChart")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom);
+    // variable g is the stacked area chart
+    var g = svg.append("g")
+                .attr("class", "areachart")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    
+    // data import
+    d3.csv("csv/internet-users-by-world-region-clean.csv", function(error, data) {
+      color.domain(d3.keys(data[0]).filter(function(key) { return key !== "Year"; }));
+      var keys = data.columns.filter(function(key) { return key !== "Year"; });
+
+      data.forEach(function(d) {
+        d.Year = parseDate(d.Year);
+      });
+
+      var maxDateVal = d3.max(data, function(d) {
+        var vals = d3.keys(d).map(function(key) { return key !== "Year" ? d[key] : 0});
+        return d3.sum(vals);
+      });
+
+      // Set axes domain
+      x.domain(d3.extent(data, function(d) { return d.Year; }));
+      y.domain([0, maxDateVal]);
+
+      // Stacks
+      stack.keys(keys);
+      stack.order(d3.stackOrderNone);
+      stack.offset(d3.stackOffsetNone);
+      
+      console.log(origD = data);
+
+      var browser = g.selectAll(".browser")
+                      .data(stack(data))
+                      .enter()
+                      .append("g")
+                      .attr("class", function(d) { return "browser" + d.key; })
+                      .attr("fill-opacity", 0.7);
+      browser.append("path")
+              .attr("class", "area")
+              .attr("d", area)
+              .style("fill", function(d) { return color(d.key); });
+              
+      browser.on("mouseover", function() { tooltip.style("display", "block"); })
+              .on("mouseout", function() { tooltip.style("display", "none"); })
+              .on("mousemove", function(d) {
+                //console.log(d);
+                var xPos = d3.mouse(this)[0] - 40;
+                var yPos = d3.mouse(this)[1] + 10;
+                tooltip.attr("transform", "translate(" + xPos + "," + yPos + ")");
+                tooltip.select("text").text(d.key);
+              })
+              .on("click", function(d) {
+                console.log(clickD = d);
+                dispatch.call("area", this, d.key)
+                dispatch.call("bar", this, d.key);
+              });
+      g.append("g")
+          .attr("class", "xaxis")
+          .attr("transform", "translate(0," + height + ")")
+          .call(xAxis);
+      g.append("g")
+          .attr("class", "yaxis")
+          .call(yAxis);
+      g.append("text")
+          .attr("transform", "translate(-45," + (height + margin.bottom)/1.5 + ") rotate(-90)")
+          .text("Internet Users (billions)");
+    });
+    // Prepping tool tip hover for stacked area chart
+    var tooltip = svg.append("g")
+                      .style("display", "none");
+    tooltip.append("rect")
+            .attr("class", "tooltip")
+            .attr("width", 180)
+            .attr("height", 20)
+            .attr("fill", "white")
+            .style("opacity", 0.5);
+    tooltip.append("text")
+      .attr("class", "tooltip")
+      .attr("x", 40)
+      .attr("dy", "1.2em")
+      .style("text-anchor", "start")
+      .attr("font-size", "12px")
+      .attr("font-weight", "bold");
+  }
+  /*
+  Update area chart function
+  */ 
+  function updateAreaChart2(key) {
+    d3.select("#areaChart")
+      .selectAll("path.area")
+      .remove();
+    d3.select("#areaChart")
+      .selectAll("path.newarea")
+      .remove();
+    d3.select("#areaChart")
+      .selectAll("text.tooltip")
+      .remove();
+    d3.select("#areaChart")
+      .selectAll("rect.tooltip")
+      .remove();
+    
+    // maintain canvas
+    var margin = {top: 50, right: 50, bottom: 20, left: 90},
+          width = 600 - margin.left - margin.right,
+          height = 400 - margin.top - margin.bottom;
+    var x = d3.scaleTime()
+              .range([0, width]);
+    var y = d3.scaleLinear()
+              .range([height, 0]);
+    var xAxis = d3.axisBottom()
+                  .scale(x);
+    var yAxis = d3.axisLeft()
+                  .scale(y)
+                  .tickFormat(formatBillion);
+    // data import
+    d3.csv("csv/internet-users-by-world-region-clean.csv", function(error, data) {
+      var selectedData = data.map(function(d) {
+        return {
+          Year: d.Year,
+          Region: d[key]
+        };
+      });
+      console.log(sel2 = selectedData);
+      var intRegionVals = selectedData.map(function(d) { return d.Region; }).map(Number);
+      
+      // Set axes domain
+      x.domain(d3.extent(selectedData, function(d) { return d.Year; }));
+      y.domain([0, d3.max(intRegionVals)]);
+      // new area function, for bottom-up transition animation
+      var area = function(datum, boolean) {
+        return d3.area()
+                .x(function(d) { return x(d.Year); })
+                .y0(height)
+                .y1(function(d) { return boolean ? y(d.Region) : height; })
+                (datum);
+      };
+      // update area chart
+      var g = d3.select(".areachart");
+      g.append("g")
+        .append("path")
+        .attr("class", "newarea")
+        .data([selectedData])
+        .attr("fill-opacity", 0.7)
+        .style("fill", function(d) { return color(key); })
+        .attr("d", d => area(d, false))
+        .transition().duration(1000)
+        .attr("d", d => area(d, true));
+      // update y-axis
+      g.select(".yaxis")
+        .transition().duration(1000)
+        .call(yAxis);
+    })
+  }
+
+
+  // FACEBOOK USERS DATASET
+  var fbData = [
+      // East asia and pacific is East Asia + Oceania + Australia
+      // 19,463,250 is number of Oceania/Australia fb users
+      // Cambodia 4,100,000, China 1,800,000, Indonesia 126,000,000, Korea 17,000,000, 
+      // LAO 1,400,000, Malaysia 19,000,000, Mongolia 1,500,000, Myanmar 11,000,000, 
+      // Philippines 69,000,000, Singapore 4,100,000, Thailand 57,000,000, Timor-Leste 340,000, Vietnam  64,000,000
+      {category: "East Asia & Pacific", measure: 395703250},
+      // Europe and central Asia (Europe one includes Russia)
+      // Europe 343,273,740, Armenia 960,000, Kazakhstan 1,500,000,
+      {category: "Europe & Central Asia", measure: 345733740},
+      // Latin America carribbean
+      {category: "Latin America & Caribbean", measure: 370975340},
+      // Middle east north africa
+      {category: "Middle East & North Africa", measure: 86700000},
+      // North America
+      {category: "North America", measure: 263081200},
+      // South Asia
+      // Afghanistan 2,600,000, Bangladesh 21,000,000, Bhutan 250,000, India 241,000,000, 
+      // Maldives 270,000, Nepal 6,400,000, Pakistan 27,000,000, Sri Lanka 4,200,000
+      {category: "South Asia", measure: 302720000},
+      // Sub-saharan africa
+      {category: "Sub-Saharan Africa", measure: 160207000}
+  ];
+
+  /*
+  BAR CHART FUNCTION
+  */ 
+  function initBarChart() {
+    // Create and build canvas
+    var margin = {top: 50, right: 50, bottom: 90, left: 90},
+          width = 600 - margin.left - margin.right,
+          height = 300 - margin.top - margin.bottom;
+    var svg = d3.select("#barChart")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom);
+
+    // create scales
+    var xScale = d3.scaleBand()
+                    //.domain([0, fbData.length])
+                    .domain(fbData.map(function(d) { return d.category; }))
+                    .range([0, width])
+                    .padding(0.3);
+    var yScale = d3.scaleLinear()
+                    .domain([0, d3.max(fbData, function(d) { return d.measure; })])
+                    .range([height, 0]);
+    var xAxis = d3.axisBottom()
+                  .scale(xScale);
+    var yAxis = d3.axisLeft()
+                  .scale(yScale)
+                  .tickFormat(formatMillion);
+
+    // variable plot is the bar chart
+    var plot = svg.append("g")
+                  .attr("class", "barchart")
+                  .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    plot.append("g")
+        .attr("class", "xaxisbar")
+        .attr("transform", "translate(0," + height + ")")
+        .call(xAxis)
+        .selectAll("text")
+          .attr("dx", "-2.5em")
+          .attr("dy", "2.5em")
+          .attr("transform", "rotate(-35)");
+    plot.append("g")
+        .attr("class", "yaxisbar")
+        .call(yAxis);
+    plot.append("text")
+        .attr("transform", "translate(-45," + (height + margin.bottom)/1.5 + ") rotate(-90)")
+        .text("Facebook Users (millions)");
+    var bars = plot.selectAll(".bar")
+                    .data(fbData);
+    bars.enter()
+        .append("rect")
+        .attr("class", "bar")
+        .attr("x", function(d) { return xScale(d.category)})
+        .attr("y", function(d) { return yScale(d.measure)})
+        .attr("width", xScale.bandwidth())
+        .attr("height", function(d) { return height - yScale(d.measure)})
+        .attr("fill", function(d) { return color(d.category)})
+        .attr("fill-opacity", 0.7);//width / fbData.length
+    
+  }
+  /*
+  Update bar function
+  */ 
+  function updateBar(key) {
+    d3.select("#barChart")
+      .selectAll("rect.bar")
+      .remove();
+    // get specific bar chart data
+    var selectedData = fbData.filter(function(d) { return d.category == key; });
+
+    // maintain canvas
+    var margin = {top: 50, right: 50, bottom: 90, left: 90},
+          width = 600 - margin.left - margin.right,
+          height = 300 - margin.top - margin.bottom;
+    // maintain scales
+    var xScaleupdate = d3.scaleBand()
+                    //.domain([0, fbData.length])
+                    .domain(selectedData.map(function(d) { return d.category; }))
+                    .range([0, width])
+                    .padding(0.5);
+    var xAxis = d3.axisBottom()
+                  .scale(xScaleupdate);
+    var yScaleupdate = d3.scaleLinear()
+                    .domain([0, d3.max(fbData, function(d) { return d.measure; })])
+                    .range([height, 0]);
+    // update bar chart
+    var plot = d3.select(".barchart");
+    // change x-axis
+    plot.select(".xaxisbar")
+        .attr("transform", "translate(0," + height + ")")
+        .transition().duration(900)
+        .call(xAxis);
+    
+    var bars = plot.selectAll(".bar")
+                    .data(selectedData);
+    bars.enter()
+        .append("rect")
+        .attr("class", "bar")
+        .attr("x", width/3)
+        .attr("y", height)
+        .transition().duration(900)
+        .attr("y", function(d) { return yScaleupdate(d.measure)})//height - })
+        .attr("height", function(d) { return height - yScaleupdate(d.measure)})
+        .attr("width", xScaleupdate.bandwidth())
+        .attr("fill", function(d) { return color(d.category)})
+        .attr("fill-opacity", 0.7);//width / fbData.length
+  }
+
+  /*
+  Variable dataset showing world regions and country codes
+  */
+  var sets = [
+        {
+            name: 'East Asia & Pacific',
+            set: d3.set(['Australia','Cambodia','China','Fiji','French Polynesia','Guam','Hong Kong','Indonesia',
+                        'Japan','Korea, Democratic People\'s Republic of','Korea, Republic of','Lao People\'s Democratic Republic',
+                        'Macao','Malaysia','Mongolia','Myanmar','Nauru','New Caledonia','New Zealand','Northern Mariana Islands',
+                        'Palau','Papua New Guinea','Philippines','Singapore','Thailand','Tonga','Viet Nam']),
+        },
+        {
+            name: 'Europe & Central Asia',
+            set: d3.set(['Albania','Andorra','Armenia','Austria','Belarus','Belgium','Bosnia and Herzegovina','Bulgaria',
+                        'Croatia','Cyprus','Czech Republic','Denmark','Estonia','Faroe Islands','Finland','France',
+                        'Georgia','Germany','Gibraltar','Greece','Greenland','Hungary','Iceland','Ireland','Isle of Man',
+                        'Italy','Kazakhstan','Kosovo','Kyrgyz Republic','Kyrgyzstan','Latvia','Liechtenstein','Lithuania',
+                        'Luxembourg','Macedonia, the former Yugoslav Republic of','Moldova, Republic of','Monaco','Montenegro',
+                        'Netherlands','Norway','Poland','Portugal','Romania','Russian Federation','San Marino','Serbia','Azerbaijan',
+                        'Slovakia','Slovenia','Spain','Sweden','Switzerland','Tajikistan','Turkey','Turkmenistan','Ukraine','United Kingdom','Uzbekistan']),
+        },
+        {
+            name: 'Latin America & Caribbean',
+            set: d3.set(['Antigua and Barbuda','Argentina','Aruba','Bahamas','Barbados','Belize','Bolivia, Plurinational State of','Brazil','Virgin Islands, British',
+                        'Cayman Islands','Chile','Colombia','Costa Rica','Cuba','Curacao','Dominica','Dominican Republic',
+                        'Ecuador','El Salvador','Grenada','Guatemala','Guyana','Haiti','Honduras','Jamaica','Mexico','Nicaragua',
+                        'Panama','Paraguay','Peru','Puerto Rico','Sint Maarten (Dutch part)','Saint Kitts and Nevis','Saint Lucia',
+                        'Saint Martin (French part)','Saint Vincent and the Grenadines','Suriname','Trinidad and Tobago',
+                        'Turks and Caicos Islands','Uruguay','Venezuela, Bolivarian Republic of','Virgin Islands, U.S.']),
+        },
+        {
+            name: 'Middle East & North Africa',
+            set: d3.set(['Algeria','Bahrain','Djibouti','Egypt','Iran, Islamic Republic of','Iraq','Israel','Jordan',
+                        'Kuwait','Lebanon','Libya','Malta','Morocco','Oman','Qatar','Saudi Arabia','Syrian Arab Republic',
+                        'Tunisia','United Arab Emirates','Yemen', 'Western Sahara']),
+        },
+        {
+            name: 'North America',
+            set: d3.set(['Bermuda','Canada','United States']),
+        },
+        {
+            name: 'South Asia',
+            set: d3.set(['Afghanistan','Bangladesh','Bhutan','India','Maldives','Nepal','Pakistan','Sri Lanka']),
+        },
+        {
+            name: 'Sub-Saharan Africa',
+            set: d3.set(['Angola','Benin','Botswana','Burkina Faso','Burundi','Cabo Verde','Cameroon','Central African Republic',
+                        'Chad','Comoros','Congo','Congo, the Democratic Republic of the','Côte d\'Ivoire','Equatorial Guinea',
+                        'Eritrea','Ethiopia','Gabon','Gambia','Ghana','Guinea','Kenya','Lesotho','Liberia','Madagascar','Malawi',
+                        'Mali','Mauritania','Mauritius','Mozambique','Namibia','Niger','Nigeria','Rwanda','Sao Tome and Principe',
+                        'Senegal','Seychelles','Sierra Leone','Somalia','South Africa','South Sudan','Sudan','Swaziland',
+                        'Tanzania, United Republic of','Uganda','Zambia','Zimbabwe','Somaliland','Guinea-Bissau','Togo']),
+        },
+  ];
+  console.log(g = sets);
+
+  /*
+  MAP function
+  */ 
+  function initMap() {
+    // Create and build canvas
+    var margin = {top: 200, right: 50, bottom: 0, left: 50},
+          width = 1060 - margin.left - margin.right,
+          height = 680 - margin.top - margin.bottom;
+    var svg = d3.select("#mapChart")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom);
+    // geo projection
+    var projection = d3.geoMercator()
+                        .scale(155)
+                        .rotate([-10,0]);
+    var path = d3.geoPath()
+                  .projection(projection);
+
+    // variable map is the map geojson
+    var map = svg.append("g")
+                  .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    // queueing the world data and countries data
+    queue()
+      .defer(d3.json, "json/world-110m2.json")
+      .defer(d3.tsv, "json/countries.tsv")
+      .await(ready);
+    
+    // draw the world, and countries
+    function ready(error, world, names) {
+      if (error) throw error;
+      console.log(w = world);
+      //var countries1 = topojson.feature(world, world.objects.countries).features;
+      var countries = topojson.feature(world, world.objects.countries).features;
+      console.log(c1 = countries);
+      // The following folds the TSV countries data into the
+      // countries object
+      countries = countries.filter(function(d) {
+        return names.some(function(n) {
+          if (d.id == n.id) return d.name = n.name;
+        });
+      }).sort(function(a,b) {
+        return a.name.localeCompare(b.name);
+      });
+      console.log(c2 = countries);
+      // show map
+      map.selectAll(".country")
+          .data(countries)
+          .enter().append("path")//insert("path", ".graticule")
+          .attr("class", "country")
+          .attr("d", path)
+          .style("fill", "grey")
+          .style("fill-opacity", 0.7);
+      
+      // making highlight region g
+      var regionMap = map.append("g");
+      // loop through all countries, and color the world-regions
+      for (i = 0; i < sets.length; i++) {
+        var selCountries = countries.filter(function(d) { return sets[i].set.has(d.name); });
+        regionMap.selectAll(".countrySelected")
+            .data(selCountries)
+            .enter().append("path")
+            .attr("class", function() {
+              var c = "countrySelected";
+              c += "." + i.toString();
+              return c;
+            })
+            .attr("d", path)
+            // .on("click", function(d) {
+            //   if (i == 0) { //maybe check with d.name?
+            //     var keyI = "East Asia & Pacific";
+            //     console.log(check = keyI)
+            //   }
+            //     console.log(clickD = d);
+            //     dispatch.call("area", this, keyI);
+            //     dispatch.call("bar", this, keyI);
+            // })
+            //.on("mouseover", mouseFunc)
+            .style("fill", function(d) { return color(i)});
+      }
+      console.log(r = regionMap.selectAll(".countrySelected"));
+      d3.selectAll(".countrySelected")
+              .append("path")
+              .attr("d", path)
+              .style("fill", "black");
+      // function mouseFunc() {
+      //   regionMap.selectAll("." + this.getAttribute('class'))
+      //   .style("stroke", "black")
+      //   .style("stroke-width", 5);
+      // };
+    }
+  }
+
+  /*
+  MAP function
+  */ 
+  function oldInitMap() {
+    // Create and build canvas
+    var margin = {top: 200, right: 50, bottom: 0, left: 50},
+          width = 1060 - margin.left - margin.right,
+          height = 680 - margin.top - margin.bottom;
+    var svg = d3.select("#mapChart")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom);
+    // geo projection
+    var projection = d3.geoMercator()
+                        .scale(155)
+                        .rotate([-10,0]);
+    var path = d3.geoPath()
+                  .projection(projection);
+
+    // variable map is the map geojson
+    var map = svg.append("g")
+                  .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    d3.json("json/world-110m2.json", function(error, topology) {
+      // load world region coordinates, circles
+      d3.csv("csv/world-region-coords.csv", function(error, data) {
+        map.selectAll("circle")
+            .data(data)
+            .enter()
+            .append("circle")
+            .attr("cx", function(d) {
+              return projection([d.Longitude, d.Latitude])[0];
+            })
+            .attr("cy", function(d) {
+              return projection([d.Longitude, d.Latitude])[1];
+            })
+            .attr("r", 20)
+            .style("fill", function(d) { return color(d.Region); })
+            .style("fill-opacity", 0.5)
+            .on("mouseover", function() {
+              d3.select(this)
+                .transition()
+                .duration("105")
+                .attr("r", 100)
+                .style("fill-opacity", 0.85)
+            })
+            .on("mouseout", function() {
+              d3.select(this)
+                .transition()
+                .duration("120")
+                .attr("r", 20)
+                .style("fill-opacity", 0.5)
+            })
+            .on("click", function(d) {
+                console.log(clickD = d);
+                dispatch.call("area", this, d.Region);
+                dispatch.call("bar", this, d.Region);
+            });
+      })
+      map.attr("class", "countries")
+          .selectAll("path")
+          .data(topojson.feature(topology, topology.objects.countries).features)
+          .enter()
+          .append("path")
+          .attr("d", path)
+          .style("fill", "grey")
+          .style("fill-opacity", 0.55)
+    });
+
+  }
+  initAreaChart();
+  initBarChart();
+  initMap();
+  
+</script>
+</body>
+</html>
